@@ -1,6 +1,5 @@
 """
 БОТ ДЛЯ НАПОМИНАНИЙ — ТРЕКЕР ПРИВЫЧЕК
-Написан на python-telegram-bot без тяжёлых зависимостей.
 """
 
 import os
@@ -38,10 +37,6 @@ REMINDER_TEXTS = [
     "💡 Привет! Ты не забыл про свои привычки? Загляни в трекер — это займёт секунду.",
 ]
 
-# ==========================================
-# КОМАНДЫ
-# ==========================================
-
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Привет! Я буду напоминать тебе выполнять привычки.\n\n"
@@ -53,17 +48,13 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_remind(update: Update, context: ContextTypes.DEFAULT_TYPE):
     parts = update.message.text.strip().split()
-
     if len(parts) < 2:
         await update.message.reply_text("Укажи время, например:\n/remind 09:00")
         return
 
-    time_str = parts[1]
-
     try:
-        hour, minute = time_str.split(":")
-        hour = int(hour)
-        minute = int(minute)
+        hour, minute = parts[1].split(":")
+        hour, minute = int(hour), int(minute)
         if not (0 <= hour <= 23 and 0 <= minute <= 59):
             raise ValueError
     except ValueError:
@@ -76,13 +67,12 @@ async def cmd_remind(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         f"✅ Готово! Каждый день в {hour:02d}:{minute:02d} я буду напоминать тебе о привычках.\n\n"
-        f"Чтобы отключить — напиши /remind_off"
+        "Чтобы отключить — напиши /remind_off"
     )
 
 async def cmd_remind_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reminders = load()
     uid = str(update.effective_user.id)
-
     if uid in reminders:
         del reminders[uid]
         save(reminders)
@@ -93,62 +83,43 @@ async def cmd_remind_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reminders = load()
     uid = str(update.effective_user.id)
-
     if uid in reminders:
         await update.message.reply_text(f"🕐 Напоминание установлено на {reminders[uid]} каждый день.")
     else:
         await update.message.reply_text("Напоминаний нет. Установи через /remind 09:00")
 
-# ==========================================
-# ФОНОВАЯ ЗАДАЧА — ПРОВЕРЯЕТ ВРЕМЯ КАЖДЫЕ 30 СЕКУНД
-# ==========================================
-
 async def reminder_loop(app):
     last_sent = {}
-
     while True:
         await asyncio.sleep(30)
-
         now = datetime.now()
         current_time = f"{now.hour:02d}:{now.minute:02d}"
         current_date = now.strftime("%Y-%m-%d")
-
         reminders = load()
-
         for user_id, remind_time in reminders.items():
             if remind_time == current_time:
                 sent_key = f"{user_id}_{current_date}_{current_time}"
                 if sent_key not in last_sent:
                     try:
-                        text = random.choice(REMINDER_TEXTS)
-                        await app.bot.send_message(int(user_id), text)
+                        await app.bot.send_message(int(user_id), random.choice(REMINDER_TEXTS))
                         last_sent[sent_key] = True
                         logging.info(f"Напоминание отправлено: {user_id}")
                     except Exception as e:
-                        logging.error(f"Ошибка отправки {user_id}: {e}")
+                        logging.error(f"Ошибка: {e}")
 
-# ==========================================
-# ЗАПУСК
-# ==========================================
-
-async def main():
+def main():
     app = Application.builder().token(BOT_TOKEN).build()
-
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("remind", cmd_remind))
     app.add_handler(CommandHandler("remind_off", cmd_remind_off))
     app.add_handler(CommandHandler("status", cmd_status))
 
-    # Запускаем фоновую задачу напоминаний
-    asyncio.create_task(reminder_loop(app))
+    # post_init запускает фоновую задачу после старта бота
+    async def post_init(application):
+        asyncio.create_task(reminder_loop(application))
 
-    # Запускаем бот
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
-
-    # Держим бот живым бесконечно
-    await asyncio.Event().wait()
+    app.post_init = post_init
+    app.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
